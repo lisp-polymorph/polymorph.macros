@@ -6,5 +6,6 @@
     :license  "CCA"
     :version "0.5"
     :serial t
+    :depends-on (#:adhoc-polymorphic-functions #:compiler-macro)
     :components ((:file "package")
                  (:file "polymorph.utility")))

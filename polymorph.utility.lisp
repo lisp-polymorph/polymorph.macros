@@ -169,3 +169,66 @@ Examples of usage:
                                 ,(rec rest)))))))
                  `(progn ,@body))))
     (rec bindings)))
+
+
+
+
+(defparameter *struct-name* (make-hash-table :test #'equalp))
+
+(defun encode-type (obj-name &rest typenames)
+  (or (gethash (cons obj-name typenames) *struct-name*)
+     (setf (gethash (cons obj-name typenames) *struct-name*)
+           (gentemp))))
+
+
+(defmacro define-struct (name inheritance &body slots)
+  (let ((trueslots (loop :for (name . rest) :in slots
+                         :collect (ecase (length rest)
+                                    (1 `(,name . ,rest))
+                                    (2 (let ((type (cadr (member :t rest))))
+                                         `(,name ,(default type) :type ,type)))
+                                    (3 (let ((type (cadr (member :t rest))))
+                                         `(,name ,(third rest) :type ,type)))))))
+
+    `(progn
+       (defstruct ,(if inheritance
+                       `(,name (:include ,inheritance))
+                       name)
+         ,@trueslots)
+       ,(unless (fboundp name)
+         `(define-polymorphic-function ,name (&optional
+                                              ,@(loop :for (name . rest) :in slots
+                                                      :collect name))
+            :overwrite t))
+       (defpolymorph (,name :inline t)
+           (&optional ,@(loop :for (sname . rest) :in slots
+                              :collect (ecase (length rest)
+                                         (1 `((,sname t) . ,rest))
+                                         (2 (let ((type (cadr (member :t rest))))
+                                              `((,sname ,type) ,(default type))))
+                                         (3 (let ((type (cadr (member :t rest))))
+                                              `((,sname ,type) ,(third rest)))))))
+         (values ,name &optional)
+         (,(intern (concatenate 'string "MAKE-" (string name)))
+           ,@(loop :for (sname . _) :in slots
+                   :appending `(,(intern (string sname) "KEYWORD") ,sname))))
+       ,@(loop :for (sname . rest) :in slots
+               :for type := (ecase (length rest)
+                              (1 t)
+                              ((2 3) (cadr (member :t rest))))
+               :collect `(progn
+                           ,(unless (fboundp sname)
+                             `(define-polymorphic-function ,sname (object) :overwrite t))
+                           (defpolymorph (,sname :inline t)
+                               ((object ,name)) (values ,type &optional)
+                               (,(intern (concatenate 'string (string name) "-" (string sname)))
+                                 object))
+                           ,(unless (fboundp `(setf ,sname))
+                             `(define-polymorphic-function (setf ,sname) (new object) :overwrite t))
+                           (defpolymorph ((setf,sname) :inline t)
+                               ((new ,type) (object ,name)) (values ,type &optional)
+                               (setf (,(intern (concatenate 'string (string name) "-" (string sname)))
+                                       object)
+                                     new)))))))
+
+
