@@ -196,10 +196,10 @@ Examples of usage:
                        name)
          ,@trueslots)
        ,(unless (fboundp name)
-         `(define-polymorphic-function ,name (&optional
-                                              ,@(loop :for (name . rest) :in slots
-                                                      :collect name))
-            :overwrite t))
+          `(define-polymorphic-function ,name (&optional
+                                               ,@(loop :for (name . rest) :in slots
+                                                       :collect name))
+             :overwrite t))
        (defpolymorph (,name :inline t)
            (&optional ,@(loop :for (sname . rest) :in slots
                               :collect (ecase (length rest)
@@ -218,17 +218,15 @@ Examples of usage:
                               ((2 3) (cadr (member :t rest))))
                :collect `(progn
                            ,(unless (fboundp sname)
-                             `(define-polymorphic-function ,sname (object) :overwrite t))
+                              `(define-polymorphic-function ,sname (object) :overwrite t))
                            (defpolymorph (,sname :inline t)
                                ((object ,name)) (values ,type &optional)
                                (,(intern (concatenate 'string (string name) "-" (string sname)))
                                  object))
                            ,(unless (fboundp `(setf ,sname))
-                             `(define-polymorphic-function (setf ,sname) (new object) :overwrite t))
+                              `(define-polymorphic-function (setf ,sname) (new object) :overwrite t))
                            (defpolymorph ((setf,sname) :inline t)
                                ((new ,type) (object ,name)) (values ,type &optional)
                                (setf (,(intern (concatenate 'string (string name) "-" (string sname)))
                                        object)
                                      new)))))))
-
-
