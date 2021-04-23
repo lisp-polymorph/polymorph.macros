@@ -2,6 +2,13 @@
 
 (in-package #:polymorph.utility)
 
+(defun %form-type (form &optional env)
+  (if (constantp form env)
+      (let ((val (eval form))) ;;need custom eval that defaults to sb-ext:eval-in-lexenv here)
+        (if (typep val '(or number character symbol))
+            (values `(eql ,val) t)
+            (values (type-of val) t)))
+      (adhoc-polymorphic-functions::form-type form env)))
 
 (deftype ind () `(integer 0 #.array-dimension-limit))
 
@@ -101,7 +108,7 @@
 
 
 
-(defmacro zapf ((place name) expr)
+(defmacro zapf ((place name) expr &environment env)
   "Usage: setting element of a container in an efficient way.
 Name argument refers to the name that can be used in an expr instead of a palce value.
   Example: (zapf ((gethash ht key) v) (+ v (expt v v)))"
@@ -111,6 +118,7 @@ Name argument refers to the name that can be used in an expr instead of a palce 
     `(let* (,@(mapcar #'list temps exprs)
             (,(car stores)
              (let ((,name ,access-expr))
+               (declare (type ,(%form-type place env) ,name))
                ,expr)))
        ,store-expr)))
 
@@ -208,7 +216,7 @@ Examples of usage:
                                               `((,sname ,type) ,(default type))))
                                          (3 (let ((type (cadr (member :t rest))))
                                               `((,sname ,type) ,(third rest)))))))
-         (values ,name &optional)
+         ,name
          (,(intern (concatenate 'string "MAKE-" (string name)))
            ,@(loop :for (sname . _) :in slots
                    :appending `(,(intern (string sname) "KEYWORD") ,sname))))
@@ -220,13 +228,37 @@ Examples of usage:
                            ,(unless (fboundp sname)
                               `(define-polymorphic-function ,sname (object) :overwrite t))
                            (defpolymorph (,sname :inline t)
-                               ((object ,name)) (values ,type &optional)
+                               ((object ,name)) ,type
                                (,(intern (concatenate 'string (string name) "-" (string sname)))
                                  object))
                            ,(unless (fboundp `(setf ,sname))
                               `(define-polymorphic-function (setf ,sname) (new object) :overwrite t))
                            (defpolymorph ((setf,sname) :inline t)
-                               ((new ,type) (object ,name)) (values ,type &optional)
+                               ((new ,type) (object ,name)) ,type
                                (setf (,(intern (concatenate 'string (string name) "-" (string sname)))
                                        object)
                                      new)))))))
+
+
+(defmacro with-t-slots (names object &body body)
+  `(symbol-macrolet ,(loop :for name :in names
+                           :collect (if (listp name)
+                                        (destructuring-bind (vname key type &optional (newname vname)) name
+                                          (assert (member key '(:t :type)))
+                                          `(,newname (the ,type (,vname ,object))))
+                                        `(,name (,name ,object))))
+     ,@body))
+
+
+(deftype has-binops (&rest functions)
+  (let ((intersec))
+    (loop :for fn :in functions
+          :for lists := (mapcar #'adhoc-polymorphic-functions::polymorph-type-list
+                                (adhoc-polymorphic-functions::polymorphic-function-polymorphs
+                                 (fdefinition fn)))
+          :for res := (loop :for list :in lists
+                            :when (and (= 2 (length list))
+                                     (eql (first list) (second list)))
+                            :collect (first list))
+          :do (setf intersec (if intersec (intersection res intersec) res)))
+    `(or ,@intersec)))
