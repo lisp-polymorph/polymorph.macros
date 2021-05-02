@@ -13,16 +13,16 @@
 
   (deftype ind () `(integer 0 #.array-dimension-limit))
 
-  (defparameter *default-impl* (make-hash-table))
+  (defparameter *default-impl* (make-hash-table)))
 
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defun %dimensions-comp (dimensions)
     (cond ((eql '* dimensions) 0)
           ((listp dimensions) (mapcar (lambda (x) (if (eql '* x) 0 x)) dimensions))
-          (t dimensions)))
+          (t dimensions))))
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defun default (type &optional environment)
     "Return a reasonable default object for a given type."
     (multiple-value-bind (item knownp) (gethash type *default-impl*)
@@ -103,12 +103,12 @@
                                         :element-type ',(or (first rest) t)
                                         :initial-element ,(if (first rest)
                                                               (default (first rest))
-                                                              0))))))))))
+                                                              0)))))))))))
 
 
 
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro zapf (place name expr &environment env)
     "Usage: setting element of a container in an efficient way.
   Name argument refers to the name that can be used in an expr instead of a palce value.
@@ -121,11 +121,11 @@
                 (let ((,name ,access-expr))
                   (declare (type ,(%form-type place env) ,name))
                   ,expr)))
-         ,store-expr)))
+         ,store-expr))))
 
 
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro bind* (bindings &body body)
     "Bind unites 3 things: let*, multiple-value-bind and builtin type declarations.
    Uses default for filling out the values if types was provided, otherwise defaults to nil.
@@ -177,19 +177,19 @@ Examples of usage:
                                                           :collect `(type ,type ,name))))
                                   ,(rec rest)))))))
                    `(progn ,@body))))
-      (rec bindings)))
+      (rec bindings))))
 
 
 
-
-  (defparameter *struct-name* (make-hash-table :test #'equalp))
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *struct-name* (make-hash-table :test #'equalp)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defun encode-type (obj-name &rest typenames)
     (or (gethash (cons obj-name typenames) *struct-name*)
        (setf (gethash (cons obj-name typenames) *struct-name*)
-             (gentemp))))
+             (gentemp)))))
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro define-struct (name inheritance &body slots)
     (let ((trueslots (loop :for (name . rest) :in slots
                            :collect (ecase (length rest)
@@ -238,9 +238,9 @@ Examples of usage:
                                  ((new ,type) (object ,name)) ,type
                                (setf (,(intern (concatenate 'string (string name) "-" (string sname)))
                                       object)
-                                     new)))))))
+                                     new))))))))
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro with-t-slots (names object &body body)
     `(symbol-macrolet ,(loop :for name :in names
                              :collect (if (listp name)
@@ -248,9 +248,9 @@ Examples of usage:
                                             (assert (member key '(:t :type)))
                                             `(,newname (the ,type (,vname ,object))))
                                           `(,name (,name ,object))))
-       ,@body))
+       ,@body)))
 
-
+(eval-when (:compile-toplevel :load-toplevel :execute)
   (deftype has-binops (&rest functions)
     (let ((intersec))
       (loop :for fn :in functions
