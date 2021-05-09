@@ -1,6 +1,13 @@
 ;;;; package.lisp
 
-(defpackage #:polymorph.utility
-  (:use #:cl #:adhoc-polymorphic-functions #:alexandria)
+(defpackage #:polymorph.macros
+  (:use #:cl
+	#:adhoc-polymorphic-functions
+	#:polymorph.utility
+	#:alexandria)
   (:local-nicknames (:cm :sandalphon.compiler-macro)
-                    (:mop :closer-mop)))
+                    (:mop :closer-mop))
+
+  (:export #:zapf
+	   #:bind*
+	   #:define-struct))
