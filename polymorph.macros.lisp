@@ -8,7 +8,7 @@
   (defmacro zapf (place name expr &environment env)
     "Usage: setting element of a container in an efficient way.
   Name argument refers to the name that can be used in an expr instead of a palce value.
-  Example: (zapf ((gethash ht key) v) (+ v (expt v v)))"
+  Example: (zapf (gethash ht key) v (+ v (expt v v)))"
     (multiple-value-bind
           (temps exprs stores store-expr access-expr)
         (get-setf-expansion place)
@@ -76,7 +76,7 @@ Examples of usage:
       (rec bindings))))
 
 
-
+;;FIXME does it belong here?
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *struct-name* (make-hash-table :test #'equalp)))
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -85,6 +85,7 @@ Examples of usage:
        (setf (gethash (cons obj-name typenames) *struct-name*)
              (gentemp)))))
 
+;;TODO the idea is good, but don't know if its usable like this
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro define-struct (name inheritance &body slots)
     (let ((trueslots (loop :for (name . rest) :in slots
@@ -136,6 +137,8 @@ Examples of usage:
                                       object)
                                      new))))))))
 
+
+;;FIXME doesn't work properly
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro with-t-slots (names object &body body)
     `(symbol-macrolet ,(loop :for name :in names
@@ -146,12 +149,13 @@ Examples of usage:
                                           `(,name (,name ,object))))
        ,@body)))
 
+;;TODO redo for interfaces
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (deftype has-binops (&rest functions)
     (let ((intersec))
       (loop :for fn :in functions
-            :for lists := (mapcar #'adhoc-polymorphic-functions::polymorph-type-list
-                                  (adhoc-polymorphic-functions::polymorphic-function-polymorphs
+            :for lists := (mapcar #'polymorphic-functions::polymorph-type-list
+                                  (polymorphic-functions::polymorphic-function-polymorphs
                                    (fdefinition fn)))
             :for res := (loop :for list :in lists
                               :when (and (= 2 (length list))
