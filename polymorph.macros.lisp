@@ -19,6 +19,27 @@
                   ,expr)))
          ,store-expr))))
 
+(defmacro setf* (place val &environment env)
+  "Usage: setting a place similar to setf, but in a type-safe way".
+  (if (symbolp place)
+      (if (subtypep (%form-type val env) (%form-type place env) env)
+          `(setq ,place ,val)
+          (error "Changing type of the variables is prohibited"))
+      (multiple-value-bind (temps exprs stores store-expr access-expr)
+          (get-setf-expansion place env)
+        (declare (ignorable access-expr))
+        (if temps
+            `(let* ((,@temps ,@exprs)
+                    (,@stores ,val))
+               (declare (type ,(%form-type (car exprs) env) ,@temps)
+                        (type ,(%form-type val env) ,@stores))
+               ,store-expr)
+            `(let* ((,@stores ,val))
+               (declare (type ,(%form-type val env) ,@stores))
+               ,store-expr)))))
+
+
+
 
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -72,7 +93,7 @@ Examples of usage:
                                                         :unless (eql '_ type)
                                                           :collect `(type ,type ,name))))
                                   ,(rec rest)))))))
-                   `(progn ,@body))))
+                   `(locally ,@body))))
       (rec bindings))))
 
 
