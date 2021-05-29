@@ -3,6 +3,7 @@
 (defpackage #:polymorph.macros
   (:use #:cl
         #:polymorphic-functions
+        #:polymorph.utility
         #:alexandria)
   (:local-nicknames (:cm :sandalphon.compiler-macro)
                     (:mop :closer-mop))
