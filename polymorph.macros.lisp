@@ -20,7 +20,8 @@
          ,store-expr))))
 
 (defmacro setf* (place val &environment env)
-  "Usage: setting a place similar to setf, but in a type-safe way".
+  "Usage: setting a place similar to setf, but in a type-safe way."
+
   (if (symbolp place)
       (if (subtypep (%form-type val env) (%form-type place env) env)
           `(setq ,place ,val)
