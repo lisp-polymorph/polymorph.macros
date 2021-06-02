@@ -6,8 +6,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro zapf (place name expr &environment env)
-    "Usage: setting element of a container in an efficient way.
-  Name argument refers to the name that can be used in an expr instead of a palce value.
+    "Usage: setting an element of a container in an efficient way.
+  Name argument refers to the name that can be used in an expr instead of a place value.
   Example: (zapf (gethash ht key) v (+ v (expt v v)))"
     (multiple-value-bind
           (temps exprs stores store-expr access-expr)
@@ -21,7 +21,6 @@
 
 (defmacro setf* (place val &environment env)
   "Usage: setting a place similar to setf, but in a type-safe way."
-
   (if (symbolp place)
       (if (subtypep (%form-type val env) (%form-type place env) env)
           `(setq ,place ,val)
@@ -51,7 +50,7 @@ Examples of usage:
 
 (bind* ((x :t fixnum 10)   ; x is 10
          (y :t string)      ; y is an empty vector of characters
-         (z (random 42))    ; z is exactly what it is supposed to be
+         (z (random 42))    ; z is a random number
          ((a :t fixnum b) (floor 179 57)))  ; a and b are 3 and 8 respectively
   body)"
     (labels ((rec (bindings)
