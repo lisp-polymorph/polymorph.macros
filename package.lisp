@@ -3,10 +3,9 @@
 (defpackage #:polymorph.macros
   (:use #:cl
         #:polymorphic-functions
-        #:polymorph.utility
+        #:introspect-ctype
         #:alexandria)
-  (:local-nicknames (:cm :sandalphon.compiler-macro)
-                    (:mop :closer-mop))
+  (:local-nicknames (:mop :closer-mop))
 
   (:export #:zapf
            #:setf*
