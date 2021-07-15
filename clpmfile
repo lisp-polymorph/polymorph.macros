@@ -1,0 +1,8 @@
+;;; -*- Mode: common-lisp; -*-
+(:api-version "0.3")
+
+(:source "quicklisp" :url "https://quicklisp.common-lisp-project-index.org/" :type :ql-clpi)
+
+(:asd "polymorph.macros.asd")
+
+(:github "polymorph.utility" :path "lisp-polymorph/polymorph.utility" :branch "master" :systems ("polymorph.utility"))
