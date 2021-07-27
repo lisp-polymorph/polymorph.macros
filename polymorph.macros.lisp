@@ -184,3 +184,34 @@ Examples of usage:
                                 :collect (first list))
             :do (setf intersec (if intersec (intersection res intersec) res)))
       `(or ,@intersec))))
+
+
+(defmacro def (type name inheritance &body slots)
+  (ecase type
+    (:struct
+     (let ((typed-slots
+             (loop :for slot :in slots
+                   :collect (if (listp slot)
+                                (destructuring-bind (sname &optional (stype t)) slot
+                                  `(,sname ,stype))
+                                `(,slot t)))))
+       `(progn
+          ,(if inheritance
+               `(defstruct (,name (:include ,@inheritance))
+                  ,@(loop :for (sname stype) :in typed-slots
+                          :collect `(,sname ,(default stype)
+                                            :type ,stype)))
+               `(defstruct ,name
+                  ,@(loop :for (sname stype) :in typed-slots
+                          :collect `(,sname ,(default stype)
+                                            :type ,stype))))
+          ,@(loop :for (sname stype) :in typed-slots
+                  :collect `(defpolymorph ,sname ((,name ,name)) (values ,stype &optional)
+                              (,(intern (format nil "~s-~s" name sname))
+                               ,name))
+                  :collect `(defpolymorph (setf ,sname) ((new ,stype) (,name ,name)) (values ,stype &optional)
+                              (setf (,(intern (format nil "~s-~s" name sname))
+                                     ,name)
+                                    new))))))))
+
+
