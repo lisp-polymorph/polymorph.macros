@@ -176,11 +176,11 @@ Examples of usage:
     (let ((intersec))
       (loop :for fn :in functions
             :for lists := (mapcar #'polymorphic-functions::polymorph-type-list
+                              :when (and (= 2 (length list)))
                                   (polymorphic-functions::polymorphic-function-polymorphs
                                    (fdefinition fn)))
             :for res := (loop :for list :in lists
-                              :when (and (= 2 (length list))
-                                       (eql (first list) (second list)))
+                                       (eql (first list) (second list))
                                 :collect (first list))
             :do (setf intersec (if intersec (intersection res intersec) res)))
       `(or ,@intersec))))
@@ -206,10 +206,10 @@ Examples of usage:
                           :collect `(,sname ,(default stype)
                                             :type ,stype))))
           ,@(loop :for (sname stype) :in typed-slots
-                  :collect `(defpolymorph ,sname ((,name ,name)) (values ,stype &optional)
+                  :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
                               (,(intern (format nil "~s-~s" name sname))
                                ,name))
-                  :collect `(defpolymorph (setf ,sname) ((new ,stype) (,name ,name)) (values ,stype &optional)
+                  :collect `(defpolymorph ((setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
                               (setf (,(intern (format nil "~s-~s" name sname))
                                      ,name)
                                     new))))))))
