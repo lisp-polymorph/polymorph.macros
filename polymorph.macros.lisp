@@ -43,15 +43,15 @@
 
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro bind* (bindings &body body)
-    "Bind unites 3 things: let*, multiple-value-bind and builtin type declarations.
+  (defmacro bind* (bindings &body body) ;; Replacement for let*
+    "Bind* unites 3 things: let*, multiple-value-bind and builtin type declarations.
    Uses default for filling out the values if types was provided, otherwise defaults to nil.
 Examples of usage:
 
 (bind* ((x :t fixnum 10)   ; x is 10
-         (y :t string)      ; y is an empty vector of characters
-         (z (random 42))    ; z is a random number
-         ((a :t fixnum b) (floor 179 57)))  ; a and b are 3 and 8 respectively
+        (y :t string)      ; y is an empty vector of characters
+        (z (random 42))    ; z is a random number
+        ((a :t fixnum b) (floor 179 57)))  ; a and b are 3 and 8 respectively
   body)"
     (labels ((rec (bindings)
                (if bindings
@@ -95,6 +95,43 @@ Examples of usage:
                                   ,(rec rest)))))))
                    `(locally ,@body))))
       (rec bindings))))
+
+
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro bind (bindings &body body) ;; Replacement for let
+    (let ((names) (types) (forms))
+      (loop :for bind :in bindings
+            :do (destructuring-bind (name &rest stuff) bind
+                  (if (listp name)
+                      (error "not implemented")
+                      (destructuring-bind
+                          (&optional sign (type 'null) (form (default type))) stuff
+                        (cond ((eq :t sign)
+                               (push name names)
+                               (push type types)
+                               (push form forms))
+                              ((= 0 (length stuff))
+                               (push name names)
+                               (push t types)
+                               (push nil forms))
+                              (t
+                               (push name names)
+                               (push t types) ;; TODO this is where some typ inference can be done
+                               (push sign forms)))))))
+      (setf names (nreverse names)
+            types (nreverse types)
+            forms (nreverse forms))
+      `(multiple-value-call
+           (lambda ,names
+             (declare ,@(loop :for name :in names :for type :in types
+                              :collect `(type ,type ,name)))
+             (progn ,@body))
+         ,@forms))))
+
+
+ 
+
 
 
 ;;FIXME does it belong here?
@@ -171,19 +208,19 @@ Examples of usage:
        ,@body)))
 
 ;;TODO redo for interfaces
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (deftype has-binops (&rest functions)
-    (let ((intersec))
-      (loop :for fn :in functions
-            :for lists := (mapcar #'polymorphic-functions::polymorph-type-list
-                              :when (and (= 2 (length list)))
-                                  (polymorphic-functions::polymorphic-function-polymorphs
-                                   (fdefinition fn)))
-            :for res := (loop :for list :in lists
-                                       (eql (first list) (second list))
-                                :collect (first list))
-            :do (setf intersec (if intersec (intersection res intersec) res)))
-      `(or ,@intersec))))
+;;(eval-when (:compile-toplevel :load-toplevel :execute)
+;;  (deftype has-binops (&rest functions)
+;;    (let ((intersec))
+;;      (loop :for fn :in functions
+;;            :for lists := (mapcar #'polymorphic-functions::polymorph-type-list
+;;                              :when (and (= 2 (length list)))
+;;                                  (polymorphic-functions::polymorphic-function-polymorphs
+;;                                   (fdefinition fn)
+;;            :for res := (loop :for list :in lists
+;;                                       (eql (first list) (second list))
+;;                                :collect (first list)
+;;            :do (setf intersec (if intersec (intersection res intersec) res))
+;;      `(or ,@intersec))))
 
 
 (defmacro def (type name inheritance &body slots)
@@ -192,26 +229,32 @@ Examples of usage:
      (let ((typed-slots
              (loop :for slot :in slots
                    :collect (if (listp slot)
-                                (destructuring-bind (sname &optional (stype t)) slot
-                                  `(,sname ,stype))
-                                `(,slot t)))))
+                                (destructuring-bind
+                                    (sname &optional (stype t) (sform (default stype))) slot
+                                  `(,sname ,stype ,sform))
+                                `(,slot t t)))))
        `(progn
           ,(if inheritance
                `(defstruct (,name (:include ,@inheritance))
-                  ,@(loop :for (sname stype) :in typed-slots
-                          :collect `(,sname ,(default stype)
+                  ,@(loop :for (sname stype sform) :in typed-slots
+                          :collect `(,sname ,sform
                                             :type ,stype)))
+
                `(defstruct ,name
-                  ,@(loop :for (sname stype) :in typed-slots
-                          :collect `(,sname ,(default stype)
+                  ,@(loop :for (sname stype sform) :in typed-slots
+                          :collect `(,sname ,sform
                                             :type ,stype))))
-          ,@(loop :for (sname stype) :in typed-slots
-                  :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
-                              (,(intern (format nil "~s-~s" name sname))
-                               ,name))
-                  :collect `(defpolymorph ((setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
-                              (setf (,(intern (format nil "~s-~s" name sname))
-                                     ,name)
-                                    new))))))))
-
-
+          ,@(loop :for (sname stype _) :in typed-slots
+                  :unless (fboundp sname)
+                    :collect `(define-polymorphic-function ,sname (object) :overwrite t)
+                    :and :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
+                                     (,(intern (format nil "~s-~s" name sname))
+                                      ,name))
+                  :unless (fboundp `(setf ,sname))
+                    :collect `(define-polymorphic-function (setf ,sname) (new object) :overwrite t)
+                    :and
+                      :collect `(defpolymorph ((setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
+                                  (setf (,(intern (format nil "~s-~s" name sname))
+                                         ,name)
+                                        new)))
+          ',name)))))
