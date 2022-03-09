@@ -19,12 +19,14 @@
                   ,expr)))
          ,store-expr))))
 
-(defmacro setf* (place val &environment env)
+(defmacro %setf (place val &environment env)
   "Usage: setting a place similar to setf, but in a type-safe way."
   (if (symbolp place)
       (if (subtypep (%form-type val env) (%form-type place env) env)
           `(setq ,place ,val)
-          (error "Changing type of the variables is prohibited"))
+          (error 'type-error :context (format nil "when SETFing ~s as ~s"
+                                              place val)
+                             :expected-type (%form-type place env) :datum val))
       (multiple-value-bind (temps exprs stores store-expr access-expr)
           (get-setf-expansion place env)
         (declare (ignorable access-expr))
@@ -38,7 +40,10 @@
                (declare (type ,(%form-type val env) ,@stores))
                ,store-expr)))))
 
-
+(defmacro setf* (&rest args)
+  (assert (evenp (length args)) (args) "Odd number of arguments to SETF")
+  `(progn ,@(loop :for (place val) :on args :by #'cddr
+                  :collect `(%setf ,place ,val))))
 
 
 
@@ -77,11 +82,11 @@ Examples of usage:
                                                   (progn (push type? types)
                                                          (push name actual-names)
                                                          (get-types rest))
-                                                  (progn (push '_ types)
+                                                  (progn (push t types)
                                                          (push name actual-names)
                                                          (get-types (cons t? (cons type? rest))))))
                                             (loop :for last :in ls
-                                                  :do (push '_ types)
+                                                  :do (push t types)
                                                       (push last actual-names)))))
                                (get-types names)
                                (setf types (nreverse types))
@@ -90,8 +95,7 @@ Examples of usage:
                                   (declare . ,(if types
                                                   (loop :for name :in actual-names
                                                         :for type :in types
-                                                        :unless (eql '_ type)
-                                                          :collect `(type ,type ,name))))
+                                                        :collect `(type ,type ,name))))
                                   ,(rec rest)))))))
                    `(locally ,@body))))
       (rec bindings))))
@@ -104,20 +108,32 @@ Examples of usage:
       (loop :for bind :in bindings
             :do (destructuring-bind (name &rest stuff) bind
                   (if (listp name)
-                      (error "not implemented")
+                      (labels ((get-types (ls)
+                                 (if (< 2 (length ls))
+                                     (destructuring-bind (name t? type? . rest) ls
+                                       (if (eql :t t?)
+                                           (progn (push type? types)
+                                                  (push name names)
+                                                  (get-types rest))
+                                           (progn (push t types)
+                                                  (push name names)
+                                                  (get-types (cons t? (cons type? rest))))))
+                                     (loop :for last :in ls
+                                           :do (push t types)
+                                               (push last names)))))
+                        (get-types name)
+                        (push (first stuff) forms))
                       (destructuring-bind
                           (&optional sign (type 'null) (form (default type))) stuff
+                        (push name names)
                         (cond ((eq :t sign)
-                               (push name names)
                                (push type types)
                                (push form forms))
                               ((= 0 (length stuff))
-                               (push name names)
                                (push t types)
                                (push nil forms))
                               (t
-                               (push name names)
-                               (push t types) ;; TODO this is where some typ inference can be done
+                               (push t types) ;; TODO this is where some type inference can be done
                                (push sign forms)))))))
       (setf names (nreverse names)
             types (nreverse types)
@@ -133,7 +149,7 @@ Examples of usage:
  
 
 
-
+#||
 ;;FIXME does it belong here?
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *struct-name* (make-hash-table :test #'equalp)))
@@ -196,16 +212,6 @@ Examples of usage:
                                      new))))))))
 
 
-;;FIXME doesn't work properly
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro with-t-slots (names object &body body)
-    `(symbol-macrolet ,(loop :for name :in names
-                             :collect (if (listp name)
-                                          (destructuring-bind (vname key type &optional (newname vname)) name
-                                            (assert (member key '(:t :type)))
-                                            `(,newname (the ,type (,vname ,object))))
-                                          `(,name (,name ,object))))
-       ,@body)))
 
 ;;TODO redo for interfaces
 ;;(eval-when (:compile-toplevel :load-toplevel :execute)
@@ -222,39 +228,64 @@ Examples of usage:
 ;;            :do (setf intersec (if intersec (intersection res intersec) res))
 ;;      `(or ,@intersec))))
 
+||#
 
-(defmacro def (type name inheritance &body slots)
-  (ecase type
-    (:struct
-     (let ((typed-slots
-             (loop :for slot :in slots
-                   :collect (if (listp slot)
-                                (destructuring-bind
-                                    (sname &optional (stype t) (sform (default stype))) slot
-                                  `(,sname ,stype ,sform))
-                                `(,slot t t)))))
-       `(progn
-          ,(if inheritance
-               `(defstruct (,name (:include ,@inheritance))
-                  ,@(loop :for (sname stype sform) :in typed-slots
-                          :collect `(,sname ,sform
-                                            :type ,stype)))
-
-               `(defstruct ,name
-                  ,@(loop :for (sname stype sform) :in typed-slots
-                          :collect `(,sname ,sform
-                                            :type ,stype))))
-          ,@(loop :for (sname stype _) :in typed-slots
-                  :unless (fboundp sname)
-                    :collect `(define-polymorphic-function ,sname (object) :overwrite t)
-                    :and :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
-                                     (,(intern (format nil "~s-~s" name sname))
-                                      ,name))
-                  :unless (fboundp `(setf ,sname))
-                    :collect `(define-polymorphic-function (setf ,sname) (new object) :overwrite t)
-                    :and
-                      :collect `(defpolymorph ((setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
-                                  (setf (,(intern (format nil "~s-~s" name sname))
-                                         ,name)
-                                        new)))
-          ',name)))))
+;; TODO This is best one so far
+(defmacro def (name (&rest traits) &body slots)
+  (let ((typed-slots
+          (loop :for slot :in slots
+                :collect (if (listp slot)
+                             (if (eq (first slot) :mut)
+                                 (destructuring-bind
+                                     (mut sname &optional (stype t) (sform (default stype)))
+                                     slot
+                                   (declare (ignore mut))
+                                   `(,sname ,stype ,sform nil))
+                                 (destructuring-bind
+                                     (sname &optional (stype t) (sform (default stype)))
+                                     slot
+                                   `(,sname ,stype ,sform t)))
+                             `(,slot t nil t)))))
+    `(progn
+       (defstruct ,name
+         ,@(loop :for (sname stype sform const) :in typed-slots
+                 :collect `(,sname ,sform
+                                   :type ,stype
+                                   :read-only ,const)))
+       ,(unless (fboundp name)
+          `(define-polymorphic-function ,name (&key ,@(loop :for (sname) :in typed-slots
+                                                            :collect sname))))
+       (defpolymorph (,name :inline t) (&key ,@(loop :for (sname stype sform) :in typed-slots
+                                                     :collect (list (list sname stype) sform)))
+           ,name
+         (,(intern (format nil "MAKE-~s" name))
+          ,@(loop :for (sname) :in typed-slots
+                  :appending (list (intern (string sname) "KEYWORD") sname))))
+       ,@(loop :for (sname stype _ const) :in typed-slots
+               :unless (fboundp sname)
+                 :collect `(define-polymorphic-function ,sname (object) :overwrite t)
+               :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
+                           (,(intern (format nil "~s-~s" name sname))
+                            ,name))
+               :unless const
+                 :unless (fboundp `(cl:setf ,sname))
+                   :collect `(define-polymorphic-function (cl:setf ,sname) (new object) :overwrite t)
+               :unless const :collect `(defpolymorph ((cl:setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
+                                         (cl:setf (,(intern (format nil "~s-~s" name sname))
+                                                   ,name)
+                                                  new)))
+       ,(when (member :eq traits)
+          `(defpolymorph (= :inline t) ((first ,name) (second ,name)) boolean
+             (and ,@(loop :for (sname) :in typed-slots
+                          :collect `(= (,sname first) (,sname second))))))
+       ,(when (member :copy traits)
+          `(progn
+             (defpolymorph (deep-copy :inline t) ((object ,name)) ,name
+               (,(intern (format nil "MAKE-~s" name))
+                ,@(loop :for (sname) :in typed-slots
+                        :appending `(,(intern (string sname) "KEYWORD") (deep-copy (,sname object))))))
+             (defpolymorph (shallow-copy :inline t) ((object ,name)) ,name
+               (,(intern (format nil "MAKE-~s" name))
+                ,@(loop :for (sname) :in typed-slots
+                        :appending `(,(intern (string sname) "KEYWORD") (,sname object)))))))
+       ',name)))
