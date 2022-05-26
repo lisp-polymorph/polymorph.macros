@@ -44,9 +44,10 @@
                   :collect `(%setf ,place ,val))))
 
 
-(defmacro bind* (bindings &body body)
+(defmacro bind* (bindings &body body &environment env)
   "Bind* unites 3 things: let*, multiple-value-bind and builtin type declarations.
    Uses default for filling out the values if types was provided, otherwise defaults to nil.
+  :infer can used to tell the macro to declare the variable to be of inferred type.
 Examples of usage:
 
 (bind* (((x fixnum) 10)   ; x is 10
@@ -64,21 +65,30 @@ Examples of usage:
                             `(let ((,name))
                                ,(rec rest))
                             (destructuring-bind (name type) name
-                              `(let ((,name ,(default type)))
-                                 (declare (type ,type ,name))
-                                 ,(rec rest))))))
+                              (if (eql type :infer)
+                                 `(let ((,name))
+                                    ,(rec rest))
+                                 `(let ((,name ,(default type)))
+                                    (declare (type ,type ,name))
+                                    ,(rec rest)))))))
                      ((= 2 (length bind))
                       (destructuring-bind (name val) bind
                         (if (symbolp name)
                             `(let ((,name ,val))
                                ,(rec rest))
                             (destructuring-bind (name type) name
-                              `(let ((,name ,val))
-                                 (declare (type ,type ,name))
-                                 ,(rec rest))))))
+                              (if (eql type :infer)
+                                  (let ((type (%form-type val env)))
+                                    `(let ((,name ,val))
+                                       (declare (type ,type ,name))
+                                       ,(rec rest)))
+                                  `(let ((,name ,val))
+                                     (declare (type ,type ,name))
+                                     ,(rec rest)))))))
                      ((< 2 (length bind))
                       (let* ((names (butlast bind))
                              (val (first (last bind)))
+                             (inftypes (%list-form-types val env))
                              (types (loop :for name :in names
                                           :for i :from 0
                                           :unless (symbolp name)
@@ -87,14 +97,17 @@ Examples of usage:
                              ,val
                            (declare ,@(when types
                                         (loop :for (type . pos) :in types
-                                              :collect `(type ,type ,(first (elt names pos))))))
+                                              :collect (if (eql type :infer)
+                                                           `(type ,(or (nth pos inftypes) 'null)
+                                                                  ,(first (elt names pos)))
+                                                           `(type ,type ,(first (elt names pos)))))))
                            ,(rec rest))))
                      (t (error "Invalid syntax in BIND*"))))
                  `(locally ,@body))))
     (rec bindings)))
 
 
-(defmacro bind (bindings &body body)
+(defmacro bind (bindings &body body &environment env)
     "Bind unites 3 things: let, multiple-value-bind and builtin type declarations.
    Uses default for filling out the values if types was provided, otherwise defaults to nil.
 Examples of usage:
@@ -113,16 +126,31 @@ Examples of usage:
                         (progn (push name names)
                                (push nil vals))
                         (destructuring-bind (name type) name
-                          (push name names)
-                          (push (cons type name) names-and-types)
-                          (push (default type) vals))))
-                  (let ((val (first (last bind))))
+                          (if (eql type :infer)
+                              (progn
+                                (push name names)
+                                (push (cons t name) names-and-types)
+                                (push nil vals))
+                              (progn
+                                (push name names)
+                                (push (cons type name) names-and-types)
+                                (push (default type) vals))))))
+                  (let* ((val (first (last bind)))
+                         (inftypes (%list-form-types val env)))
                    (loop :for name :in (butlast bind)
-                      :if (symbolp name)
-                        :do (push name names)
-                      :else :do (destructuring-bind (name type) name
-                                  (push name names)
-                                  (push (cons type name) names-and-types)))
+                         :for i :from 0
+                         :if (symbolp name)
+                           :do (push name names)
+                         :else :do (destructuring-bind (name type) name
+                                     (if (eql type :infer)
+                                         (progn
+                                           (push name names)
+                                           (push (cons (or (nth i inftypes) 'null)
+                                                       name)
+                                                 names-and-types))
+                                         (progn
+                                           (push name names)
+                                           (push (cons type name) names-and-types)))))
                    (push val vals))))
     (setf names (reverse names)
           names-and-types (reverse names-and-types)
@@ -154,11 +182,10 @@ Examples of usage:
 ;;            :do (setf intersec (if intersec (intersection res intersec) res))
 ;;      `(or ,@intersec))))
 
-||#
 
 ;; TODO This is best one so far
 (defmacro def (name (&rest traits) &body slots)
-  "Defines a structures with polymorphic constructor and accessors. :mut is for declaring slots
+  "Defines a structure with polymorphic constructor and accessors. :mut is for declaring slots
 mutable. Default values are filled according to types. Doesn't have syntax for inheritance.
 You can provide :eq and :copy as indicators that there should also be = and copy defined.
 Example of usage:
@@ -225,3 +252,133 @@ Example of usage:
                 ,@(loop :for (sname) :in typed-slots
                         :appending `(,(intern (string sname) "KEYWORD") (,sname object)))))))
        ',name)))
+
+
+;; Experimental area
+(defmacro case= (expr &body forms)
+  (let ((res (gensym "RESULT")))
+    `(let ((,res ,expr))
+       (cond ,@(loop :for (expected actions) :in forms
+                     :collect (if (atom expected)
+                                  `((polymorph.maths:= ,res ,expected)
+                                    ,actions)
+                                  `((or ,@(loop :for ex :in expected
+                                                :collect `(polymorph.maths:= ,res ,ex)))
+                                    ,actions)))))))
+
+
+
+(defun %parse-typed-lambda-list (ls)
+  (let ((names) (types) (argtype '&req))
+    (assert (>= 1 (count '&optional ls)))
+    (assert (>= 1 (count '&key ls)))
+    (assert (>= 1 (count '&rest ls)))
+    (assert (>= 1 (count '&aux ls)))
+    (labels ((rec (list)
+               (when list
+                 (destructuring-bind (head . tail) list
+                   (if (atom head)
+                       (if (member head '(&optional &key &aux &rest))
+                           (setf argtype head)
+                           (unless (eql argtype '&rest)
+                             (push head names)
+                             (push t types)))
+                       (if (atom (first head))
+                           (destructuring-bind (name type) head
+                             (assert (symbolp name))
+                             (push name names)
+                             (push type types))
+                           (destructuring-bind (name type) (first head)
+                             (assert (symbolp name))
+                             (push name names)
+                             (push type types))))
+                   (rec tail)))))
+      (rec ls)
+      (values (reverse names) (reverse types)))))
+
+
+
+(defmacro lambda* (typed-lambda-list return-type &body body)
+  (multiple-value-bind (names types) (%parse-typed-lambda-list typed-lambda-list)
+    `(lambda ,names
+       (declare ,@(loop :for name :in names
+                        :for type :in types
+                        :collect `(type ,type ,name))
+                ,(if (atom return-type)
+                     `(values ,return-type &optional)
+                     return-type))
+       ,@body)))
+
+
+(defmacro while (condition &body body)
+  (let ((start (gensym "START")))
+    `(block nil
+       (tagbody
+          ,start
+          (when ,condition
+            ,@body
+            (go ,start))))))
+
+(defmacro until (condition &body body)
+  (let ((start (gensym "START")))
+    `(block nil
+       (tagbody
+          ,start
+          (unless ,condition
+            ,@body
+            (go ,start))))))
+
+#||
+(defpolymorph add-into ((a number) (b number) (c number)) number
+  (declare (ignorable c))
+  (polymorph.maths:+ a b))
+
+
+(defmacro += (place val &environment env)
+  (multiple-value-bind
+       (temps exprs stores store-expr access-expr)
+     (get-setf-expansion place env)
+    `(let* (,@(mapcar #'list temps exprs)
+            (,(car stores)
+              (add-into ,access-expr ,val ,access-expr)))
+       ,store-expr)))
+
+(defpolymorph substract-into ((a number) (b number) (c number)) number
+  (declare (ignorable c))
+  (polymorph.maths:- a b))
+
+(defmacro -= (place val &environment env)
+  (multiple-value-bind
+       (temps exprs stores store-expr access-expr)
+     (get-setf-expansion place env)
+    `(let* (,@(mapcar #'list temps exprs)
+            (,(car stores)
+              (substract-into ,access-expr ,val ,access-expr)))
+       ,store-expr)))
+
+(defpolymorph multiply-into ((a number) (b number) (c number)) number
+  (declare (ignorable c))
+  (polymorph.maths:* a b))
+
+(defmacro *= (place val &environment env)
+  (multiple-value-bind
+       (temps exprs stores store-expr access-expr)
+     (get-setf-expansion place env)
+    `(let* (,@(mapcar #'list temps exprs)
+            (,(car stores)
+              (multiply-into ,access-expr ,val ,access-expr)))
+       ,store-expr)))
+
+(defpolymorph divide-into ((a number) (b number) (c number)) number
+  (declare (ignorable c))
+  (polymorph.maths:/ a b))
+
+(defmacro /= (place val &environment env)
+  (multiple-value-bind
+       (temps exprs stores store-expr access-expr)
+     (get-setf-expansion place env)
+    `(let* (,@(mapcar #'list temps exprs)
+            (,(car stores)
+              (divide-into ,access-expr ,val ,access-expr)))
+       ,store-expr)))
+||#

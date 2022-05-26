@@ -5,7 +5,7 @@
         #:polymorphic-functions
         #:introspect-ctype
         #:alexandria)
-        ;#:polymorph.maths
+        ;#:polymorph.maths)
         ;#:polymorph.copy-cast)
   (:local-nicknames (:mop :closer-mop))
   (:shadowing-import-from #:polymorph.maths #:=)
@@ -14,4 +14,6 @@
            #:setf*
            #:bind*
            #:bind
-           #:def))
+           #:def
+           #:lambda*
+           #:case=))
