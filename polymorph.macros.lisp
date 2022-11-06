@@ -217,7 +217,7 @@ Example of usage:
                                                             :collect sname))))
        (defpolymorph (,name :inline t) (&key ,@(loop :for (sname stype sform) :in typed-slots
                                                      :collect (list (list sname stype) sform)))
-           ,name
+           (values ,name &optional)
          (,(intern (format nil "MAKE-~s" name))
           ,@(loop :for (sname) :in typed-slots
                   :appending (list (intern (string sname) "KEYWORD") sname))))
@@ -252,6 +252,71 @@ Example of usage:
                 ,@(loop :for (sname) :in typed-slots
                         :appending `(,(intern (string sname) "KEYWORD") (,sname object)))))))
        ',name)))
+
+;; For inner usage
+(defmacro %def (lname (&rest traits) &body slots)
+  (let* ((name (if (listp lname) (first lname) lname))
+         (typed-slots
+           (loop :for slot :in slots
+                 :collect (if (listp slot)
+                              (if (eq (first slot) :mut)
+                                  (destructuring-bind
+                                      (mut sname &optional (stype t) (sform (default stype)))
+                                      slot
+                                    (declare (ignore mut))
+                                    `(,sname ,stype ,sform nil))
+                                  (destructuring-bind
+                                      (sname &optional (stype t) (sform (default stype)))
+                                      slot
+                                    `(,sname ,stype ,sform t)))
+                              `(,slot t nil t)))))
+    `(progn
+       (defstruct ,lname
+         ,@(loop :for (sname stype sform const) :in typed-slots
+                 :collect `(,sname ,sform
+                                   :type ,stype
+                                   :read-only ,const)))
+       ,(unless (fboundp name)
+          `(define-polymorphic-function ,name (&key ,@(loop :for (sname) :in typed-slots
+                                                            :collect sname))))
+       (defpolymorph (,name :inline t) (&key ,@(loop :for (sname stype sform) :in typed-slots
+                                                     :collect (list (list sname stype) sform)))
+           (values ,name &optional)
+         (,(intern (format nil "MAKE-~s" name))
+          ,@(loop :for (sname) :in typed-slots
+                  :appending (list (intern (string sname) "KEYWORD") sname))))
+       ,@(loop :for (sname stype _ const) :in typed-slots
+               :unless (fboundp sname)
+                 :collect `(define-polymorphic-function ,sname (object) :overwrite t)
+               :collect `(defpolymorph (,sname :inline t) ((,name ,name)) (values ,stype &optional)
+                          (,(intern (format nil "~s-~s" name sname))
+                           ,name))
+;                           (defpolymorph-compiler-macro ,sname (,name) (,name)
+ ;                            `(the ,',stype (,',(intern (format nil "~s-~s" name sname))
+  ;                                           ,,name)))
+               :unless const
+                 :unless (fboundp `(cl:setf ,sname))
+                   :collect `(define-polymorphic-function (cl:setf ,sname) (new object) :overwrite t)
+               :unless const :collect `(defpolymorph ((cl:setf ,sname) :inline t) ((new ,stype) (,name ,name)) (values ,stype &optional)
+                                         (cl:setf (,(intern (format nil "~s-~s" name sname))
+                                                   ,name)
+                                                  new)))
+       ,(when (member :eq traits)
+          `(defpolymorph (= :inline t) ((first ,name) (second ,name)) boolean
+             (and ,@(loop :for (sname) :in typed-slots
+                          :collect `(= (,sname first) (,sname second))))))
+       ,(when (member :copy traits)
+          `(progn
+             (defpolymorph (deep-copy :inline t) ((object ,name)) ,name
+               (,(intern (format nil "MAKE-~s" name))
+                ,@(loop :for (sname) :in typed-slots
+                        :appending `(,(intern (string sname) "KEYWORD") (deep-copy (,sname object))))))
+             (defpolymorph (shallow-copy :inline t) ((object ,name)) ,name
+               (,(intern (format nil "MAKE-~s" name))
+                ,@(loop :for (sname) :in typed-slots
+                        :appending `(,(intern (string sname) "KEYWORD") (,sname object)))))))
+       ',name)))
+
 
 
 ;; Experimental area
