@@ -8,6 +8,7 @@
         ;#:polymorph.copy-cast)
   (:local-nicknames (:mop :closer-mop))
   (:shadowing-import-from #:polymorph.copy-cast #:deep-copy)
+  (:shadowing-import-from #:polymorph.maths #:=)
   (:export #:zapf
            #:setf*
            #:bind*

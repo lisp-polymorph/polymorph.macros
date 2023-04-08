@@ -8,6 +8,7 @@
   :serial t
   :depends-on (#:introspect-ctype
                #:polymorphic-functions
+               #:polymorph.maths
                #:polymorph.copy-cast)
   :components ((:file "package")
                (:file "polymorph.macros")))

@@ -307,11 +307,11 @@ Example of usage:
                           :collect `(= (,sname first) (,sname second))))))
        ,(when (member :copy traits)
           `(progn
-             (defpolymorph (deep-copy :inline t) ((object ,name)) ,name
+             (defpolymorph (polymorph.copy-cast:deep-copy :inline t) ((object ,name)) ,name
                (,(intern (format nil "MAKE-~s" name))
                 ,@(loop :for (sname) :in typed-slots
                         :appending `(,(intern (string sname) "KEYWORD") (deep-copy (,sname object))))))
-             (defpolymorph (shallow-copy :inline t) ((object ,name)) ,name
+             (defpolymorph (polymorph.copy-cast:shallow-copy :inline t) ((object ,name)) ,name
                (,(intern (format nil "MAKE-~s" name))
                 ,@(loop :for (sname) :in typed-slots
                         :appending `(,(intern (string sname) "KEYWORD") (,sname object)))))))
@@ -320,6 +320,17 @@ Example of usage:
 
 
 ;; Experimental area
+(defmacro case= (expr &body forms)
+  "Like case, but using polymorph.maths:= instead of eql"
+  (let ((res (gensym "RESULT")))
+    `(let ((,res ,expr))
+       (cond ,@(loop :for (expected actions) :in forms
+                     :collect (if (atom expected)
+                                  `((= ,res ,expected)
+                                    ,actions)
+                                  `((or ,@(loop :for ex :in expected
+                                                :collect `(= ,res ,ex)))
+                                    ,actions)))))))
 
 
 (defun %parse-typed-lambda-list (ls)
