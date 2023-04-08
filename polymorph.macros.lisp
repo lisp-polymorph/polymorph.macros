@@ -9,7 +9,7 @@
   Example: (zapf (gethash ht key) v (+ v (expt v v)))"
  (multiple-value-bind
        (temps exprs stores store-expr access-expr)
-     (get-setf-expansion place)
+     (get-setf-expansion place env)
    `(let* (,@(mapcar #'list temps exprs)
            (,(car stores)
              (let ((,name ,access-expr))
@@ -320,17 +320,6 @@ Example of usage:
 
 
 ;; Experimental area
-(defmacro case= (expr &body forms)
-  (let ((res (gensym "RESULT")))
-    `(let ((,res ,expr))
-       (cond ,@(loop :for (expected actions) :in forms
-                     :collect (if (atom expected)
-                                  `((polymorph.maths:= ,res ,expected)
-                                    ,actions)
-                                  `((or ,@(loop :for ex :in expected
-                                                :collect `(polymorph.maths:= ,res ,ex)))
-                                    ,actions)))))))
-
 
 
 (defun %parse-typed-lambda-list (ls)
@@ -374,7 +363,7 @@ Example of usage:
                      return-type))
        ,@body)))
 
-
+;; TODO add continue
 (defmacro while (condition &body body)
   (let ((start (gensym "START")))
     `(block nil
@@ -393,57 +382,14 @@ Example of usage:
             ,@body
             (go ,start))))))
 
-#||
-(defpolymorph add-into ((a number) (b number) (c number)) number
-  (declare (ignorable c))
-  (polymorph.maths:+ a b))
 
 
-(defmacro += (place val &environment env)
-  (multiple-value-bind
-       (temps exprs stores store-expr access-expr)
-     (get-setf-expansion place env)
-    `(let* (,@(mapcar #'list temps exprs)
-            (,(car stores)
-              (add-into ,access-expr ,val ,access-expr)))
-       ,store-expr)))
+;; Rust like
+(defmacro unwrap-or (form default)
+  (alexandria:with-gensyms (val ok)
+    `(multiple-value-bind (,val ,ok) ,form
+       (if ,ok
+           ,val
+           ,default))))
 
-(defpolymorph substract-into ((a number) (b number) (c number)) number
-  (declare (ignorable c))
-  (polymorph.maths:- a b))
 
-(defmacro -= (place val &environment env)
-  (multiple-value-bind
-       (temps exprs stores store-expr access-expr)
-     (get-setf-expansion place env)
-    `(let* (,@(mapcar #'list temps exprs)
-            (,(car stores)
-              (substract-into ,access-expr ,val ,access-expr)))
-       ,store-expr)))
-
-(defpolymorph multiply-into ((a number) (b number) (c number)) number
-  (declare (ignorable c))
-  (polymorph.maths:* a b))
-
-(defmacro *= (place val &environment env)
-  (multiple-value-bind
-       (temps exprs stores store-expr access-expr)
-     (get-setf-expansion place env)
-    `(let* (,@(mapcar #'list temps exprs)
-            (,(car stores)
-              (multiply-into ,access-expr ,val ,access-expr)))
-       ,store-expr)))
-
-(defpolymorph divide-into ((a number) (b number) (c number)) number
-  (declare (ignorable c))
-  (polymorph.maths:/ a b))
-
-(defmacro /= (place val &environment env)
-  (multiple-value-bind
-       (temps exprs stores store-expr access-expr)
-     (get-setf-expansion place env)
-    `(let* (,@(mapcar #'list temps exprs)
-            (,(car stores)
-              (divide-into ,access-expr ,val ,access-expr)))
-       ,store-expr)))
-||#
